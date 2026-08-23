@@ -1,20 +1,19 @@
 # harvest-images-from-pdf
 
-Idris experiments for finding and extracting embedded image streams from PDF files.
+Edriç experiments for finding and extracting embedded image streams from PDF files.
 
-The first parser layer follows the small binary parser developed in *Real World Haskell* Chapter 10: explicit input state, byte offset, explicit failure, and composable parsers. See [`notes/real-world-haskell.md`](notes/real-world-haskell.md).
+The parser design borrows the small binary-parser lesson from *Real World Haskell* Chapter 10, but the implementation target is **Edriç**, not Haskell and not ordinary Idris source. See [`notes/real-world-haskell.md`](notes/real-world-haskell.md).
 
 Current code:
 
-- `src/PDF/Parser.idr` — pure byte parser core;
-- `src/PDF/Lexer.idr` — PDF whitespace/comments, names, numbers, header, and indirect-object header;
-- `tests/ParserTest.idr` — small deterministic parser tests.
+- `src/PDF/Parser.idric` — pure byte parser core;
+- `src/PDF/Lexer.idric` — PDF whitespace/comments, names, numbers, header, and indirect-object header;
+- `src/PDF/Types.idric` — Edriç `choice` declarations for PDF type categories, with note/manual provenance in comments;
+- `tests/ParserTest.idric` — small deterministic parser tests.
 
-With Idris 2 installed:
+PDF type provenance and the dated manual lookup are recorded in:
 
-```sh
-idris2 --source-dir src tests/ParserTest.idr -o parser-tests
-build/exec/parser-tests
-```
+- `notes/pdf-data-types.md`;
+- `notes/pdf-type-source.md`.
 
-The next step is cross-reference/object parsing, then identification and exact-length extraction of `/Subtype /Image` streams.
+The next parser step is cross-reference/object parsing, then identification and exact-length extraction of `/Subtype /Image` streams.
