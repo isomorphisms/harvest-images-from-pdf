@@ -3,175 +3,211 @@ module PDF.Parser
 import Data.List
 import Data.Vect
 
-public export
-data ParseError = ParseError Nat String
+-- Edriç spelling policy for this project:
+-- use lower snake_case and descriptive names wherever the current dialect
+-- permits them. `ByteParser` and `MkByteParser` remain capitalized because
+-- parameterized `choice` declarations are not implemented in Edriç yet.
 
 public export
-errorOffset : ParseError -> Nat
-errorOffset (ParseError offset _) = offset
+choice parse_error one_of
+  parse_error_at_byte_offset Nat String
 
 public export
-errorMessage : ParseError -> String
-errorMessage (ParseError _ message) = message
+parse_error_byte_offset : parse_error → Nat
+parse_error_byte_offset (parse_error_at_byte_offset byte_offset _) = byte_offset
+
+public export
+parse_error_message : parse_error → String
+parse_error_message (parse_error_at_byte_offset _ error_message) = error_message
 
 export
-Eq ParseError where
-  (ParseError leftOffset leftMessage) == (ParseError rightOffset rightMessage) =
-    leftOffset == rightOffset && leftMessage == rightMessage
+Eq parse_error where
+  (parse_error_at_byte_offset left_byte_offset left_error_message) ==
+    (parse_error_at_byte_offset right_byte_offset right_error_message) =
+      left_byte_offset == right_byte_offset && left_error_message == right_error_message
 
 export
-Show ParseError where
-  show (ParseError offset message) =
-    "byte offset " ++ show offset ++ ": " ++ message
+Show parse_error where
+  show (parse_error_at_byte_offset byte_offset error_message) =
+    "byte offset " ++ show byte_offset ++ ": " ++ error_message
 
 public export
-data ParseState = ParseState (List Bits8) Nat
+choice parser_state one_of
+  parser_state_with_remaining_bytes (List Bits8) Nat
 
 public export
-remaining : ParseState -> List Bits8
-remaining (ParseState bytes _) = bytes
+parser_state_remaining_bytes : parser_state → List Bits8
+parser_state_remaining_bytes (parser_state_with_remaining_bytes remaining_bytes _) = remaining_bytes
 
 public export
-offset : ParseState -> Nat
-offset (ParseState _ position) = position
+parser_state_byte_offset : parser_state → Nat
+parser_state_byte_offset (parser_state_with_remaining_bytes _ byte_offset) = byte_offset
 
 public export
-data Parser : Type -> Type where
-  MkParser : (ParseState -> Either ParseError (a, ParseState)) -> Parser a
+data ByteParser : Type → Type where
+  MkByteParser :
+    (parser_state → Either parse_error (result_type, parser_state)) →
+    ByteParser result_type
 
 public export
-runParser : Parser a -> ParseState -> Either ParseError (a, ParseState)
-runParser (MkParser parser) = parser
+run_parser : ByteParser result_type → parser_state → Either parse_error (result_type, parser_state)
+run_parser (MkByteParser parser_function) = parser_function
 
 public export
-parseWithRestAt : Nat -> Parser a -> List Bits8 -> Either ParseError (a, List Bits8)
-parseWithRestAt startOffset parser bytes =
-  case runParser parser (ParseState bytes startOffset) of
-    Left error => Left error
-    Right (value, state) => Right (value, remaining state)
+parse_with_remaining_bytes_at_offset :
+  Nat → ByteParser result_type → List Bits8 →
+  Either parse_error (result_type, List Bits8)
+parse_with_remaining_bytes_at_offset starting_byte_offset parser input_bytes =
+  case run_parser parser (parser_state_with_remaining_bytes input_bytes starting_byte_offset) of
+    Left parse_failure => Left parse_failure
+    Right (parsed_value, final_parser_state) =>
+      Right (parsed_value, parser_state_remaining_bytes final_parser_state)
 
 public export
-parseWithRest : Parser a -> List Bits8 -> Either ParseError (a, List Bits8)
-parseWithRest = parseWithRestAt 0
+parse_with_remaining_bytes :
+  ByteParser result_type → List Bits8 → Either parse_error (result_type, List Bits8)
+parse_with_remaining_bytes = parse_with_remaining_bytes_at_offset 0
 
 public export
-parseAt : Nat -> Parser a -> List Bits8 -> Either ParseError a
-parseAt startOffset parser bytes =
-  case parseWithRestAt startOffset parser bytes of
-    Left error => Left error
-    Right (value, _) => Right value
+parse_at_byte_offset :
+  Nat → ByteParser result_type → List Bits8 → Either parse_error result_type
+parse_at_byte_offset starting_byte_offset parser input_bytes =
+  case parse_with_remaining_bytes_at_offset starting_byte_offset parser input_bytes of
+    Left parse_failure => Left parse_failure
+    Right (parsed_value, _) => Right parsed_value
 
 public export
-parse : Parser a -> List Bits8 -> Either ParseError a
-parse = parseAt 0
+parse_bytes : ByteParser result_type → List Bits8 → Either parse_error result_type
+parse_bytes = parse_at_byte_offset 0
 
 export
-Functor Parser where
-  map function (MkParser parser) = MkParser $ \state =>
-    case parser state of
-      Left error => Left error
-      Right (value, nextState) => Right (function value, nextState)
+Functor ByteParser where
+  map transform (MkByteParser parser_function) = MkByteParser $ \current_parser_state =>
+    case parser_function current_parser_state of
+      Left parse_failure => Left parse_failure
+      Right (parsed_value, next_parser_state) =>
+        Right (transform parsed_value, next_parser_state)
 
 export
-Applicative Parser where
-  pure value = MkParser $ \state => Right (value, state)
+Applicative ByteParser where
+  pure value = MkByteParser $ \current_parser_state => Right (value, current_parser_state)
 
-  (MkParser functionParser) <*> (MkParser valueParser) = MkParser $ \state =>
-    case functionParser state of
-      Left error => Left error
-      Right (function, nextState) =>
-        case valueParser nextState of
-          Left error => Left error
-          Right (value, finalState) => Right (function value, finalState)
+  (MkByteParser function_parser) <*> (MkByteParser value_parser) =
+    MkByteParser $ \current_parser_state =>
+      case function_parser current_parser_state of
+        Left parse_failure => Left parse_failure
+        Right (parsed_function, next_parser_state) =>
+          case value_parser next_parser_state of
+            Left parse_failure => Left parse_failure
+            Right (parsed_value, final_parser_state) =>
+              Right (parsed_function parsed_value, final_parser_state)
 
 export
-Monad Parser where
-  (MkParser parser) >>= next = MkParser $ \state =>
-    case parser state of
-      Left error => Left error
-      Right (value, nextState) => runParser (next value) nextState
+Monad ByteParser where
+  (MkByteParser parser_function) >>= next_parser =
+    MkByteParser $ \current_parser_state =>
+      case parser_function current_parser_state of
+        Left parse_failure => Left parse_failure
+        Right (parsed_value, next_parser_state) =>
+          run_parser (next_parser parsed_value) next_parser_state
 
 public export
-failParse : String -> Parser a
-failParse message = MkParser $ \state =>
-  Left (ParseError (offset state) message)
+fail_parsing : String → ByteParser result_type
+fail_parsing error_message = MkByteParser $ \current_parser_state =>
+  Left (parse_error_at_byte_offset
+    (parser_state_byte_offset current_parser_state)
+    error_message)
 
 public export
-ensure : Bool -> String -> Parser ()
-ensure True _ = pure ()
-ensure False message = failParse message
+require_parser_condition : Bool → String → ByteParser ()
+require_parser_condition True _ = pure ()
+require_parser_condition False error_message = fail_parsing error_message
 
 public export
-getState : Parser ParseState
-getState = MkParser $ \state => Right (state, state)
+get_current_parser_state : ByteParser parser_state
+get_current_parser_state =
+  MkByteParser $ \current_parser_state => Right (current_parser_state, current_parser_state)
 
 public export
-getOffset : Parser Nat
-getOffset = map offset getState
+get_current_byte_offset : ByteParser Nat
+get_current_byte_offset = map parser_state_byte_offset get_current_parser_state
 
 public export
-peekByte : Parser (Maybe Bits8)
-peekByte = MkParser $ \state =>
-  case remaining state of
-    [] => Right (Nothing, state)
-    byte :: _ => Right (Just byte, state)
+peek_next_byte : ByteParser (Maybe Bits8)
+peek_next_byte = MkByteParser $ \current_parser_state =>
+  case parser_state_remaining_bytes current_parser_state of
+    [] => Right (Nothing, current_parser_state)
+    next_byte :: _ => Right (Just next_byte, current_parser_state)
 
 public export
-nextByte : Parser Bits8
-nextByte = MkParser $ \state =>
-  case state of
-    ParseState [] position =>
-      Left (ParseError position "end of input")
-    ParseState (byte :: rest) position =>
-      Right (byte, ParseState rest (S position))
+read_next_byte : ByteParser Bits8
+read_next_byte = MkByteParser $ \current_parser_state =>
+  case current_parser_state of
+    parser_state_with_remaining_bytes [] byte_offset =>
+      Left (parse_error_at_byte_offset byte_offset "end of input")
+    parser_state_with_remaining_bytes (next_byte :: remaining_bytes) byte_offset =>
+      Right (
+        next_byte,
+        parser_state_with_remaining_bytes remaining_bytes (S byte_offset))
 
 public export
-satisfy : String -> (Bits8 -> Bool) -> Parser Bits8
-satisfy expectation predicate = MkParser $ \state =>
-  case state of
-    ParseState [] position =>
-      Left (ParseError position ("expected " ++ expectation ++ ", found end of input"))
-    ParseState (byte :: rest) position =>
-      if predicate byte
-        then Right (byte, ParseState rest (S position))
-        else Left (ParseError position ("expected " ++ expectation ++ ", found byte " ++ show byte))
+read_byte_satisfying : String → (Bits8 → Bool) → ByteParser Bits8
+read_byte_satisfying expected_description condition =
+  MkByteParser $ \current_parser_state =>
+    case current_parser_state of
+      parser_state_with_remaining_bytes [] byte_offset =>
+        Left (parse_error_at_byte_offset byte_offset
+          ("expected " ++ expected_description ++ ", found end of input"))
+      parser_state_with_remaining_bytes (next_byte :: remaining_bytes) byte_offset =>
+        if condition next_byte
+          then Right (
+            next_byte,
+            parser_state_with_remaining_bytes remaining_bytes (S byte_offset))
+          else Left (parse_error_at_byte_offset byte_offset
+            ("expected " ++ expected_description ++ ", found byte " ++ show next_byte))
 
 public export
-matchByte : Bits8 -> Parser ()
-matchByte expected = do
-  _ <- satisfy ("byte " ++ show expected) (== expected)
+require_byte : Bits8 → ByteParser ()
+require_byte expected_byte = do
+  _ <- read_byte_satisfying ("byte " ++ show expected_byte) (== expected_byte)
   pure ()
 
 public export
-matchBytes : List Bits8 -> Parser ()
-matchBytes [] = pure ()
-matchBytes (byte :: rest) = do
-  matchByte byte
-  matchBytes rest
+require_bytes : List Bits8 → ByteParser ()
+require_bytes [] = pure ()
+require_bytes (expected_byte :: remaining_expected_bytes) = do
+  require_byte expected_byte
+  require_bytes remaining_expected_bytes
 
 public export
-takeBytes : (count : Nat) -> Parser (Vect count Bits8)
-takeBytes Z = pure []
-takeBytes (S count) = do
-  byte <- nextByte
-  rest <- takeBytes count
-  pure (byte :: rest)
+read_exactly_bytes : (byte_count : Nat) → ByteParser (Vect byte_count Bits8)
+read_exactly_bytes Z = pure []
+read_exactly_bytes (S remaining_byte_count) = do
+  next_byte <- read_next_byte
+  remaining_bytes <- read_exactly_bytes remaining_byte_count
+  pure (next_byte :: remaining_bytes)
 
 public export
-takeWhileBytes : (Bits8 -> Bool) -> Parser (List Bits8)
-takeWhileBytes predicate = MkParser $ \state =>
-  let (taken, rest) = span predicate (remaining state)
-      consumed = length taken
-  in Right (taken, ParseState rest (offset state + consumed))
+read_bytes_while : (Bits8 → Bool) → ByteParser (List Bits8)
+read_bytes_while condition = MkByteParser $ \current_parser_state =>
+  let (matching_bytes, remaining_bytes) =
+        span condition (parser_state_remaining_bytes current_parser_state)
+      consumed_byte_count = length matching_bytes
+  in Right (
+    matching_bytes,
+    parser_state_with_remaining_bytes
+      remaining_bytes
+      (parser_state_byte_offset current_parser_state + consumed_byte_count))
 
 public export
-skipWhileBytes : (Bits8 -> Bool) -> Parser ()
-skipWhileBytes predicate = map (const ()) (takeWhileBytes predicate)
+skip_bytes_while : (Bits8 → Bool) → ByteParser ()
+skip_bytes_while condition = map (const ()) (read_bytes_while condition)
 
 public export
-endOfInput : Parser ()
-endOfInput = do
-  next <- peekByte
-  case next of
+require_end_of_input : ByteParser ()
+require_end_of_input = do
+  possible_next_byte <- peek_next_byte
+  case possible_next_byte of
     Nothing => pure ()
-    Just byte => failParse ("expected end of input, found byte " ++ show byte)
+    Just next_byte =>
+      fail_parsing ("expected end of input, found byte " ++ show next_byte)

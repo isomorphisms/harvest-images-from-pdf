@@ -1,0 +1,50 @@
+module Main
+
+import PDF.Parser
+import PDF.Lexer
+import System
+
+pdf_header_test : Bool
+pdf_header_test =
+  parse_bytes parse_pdf_header (ascii_bytes "%PDF-1.7\n") == Right (1, 7)
+
+indirect_object_header_test : Bool
+indirect_object_header_test =
+  parse_bytes
+    parse_indirect_object_header
+    (ascii_bytes "\n% comment\n12 0 obj\n") == Right (12, 0)
+
+exact_byte_count_test : Bool
+exact_byte_count_test =
+  case parse_with_remaining_bytes (read_exactly_bytes 3) [10, 20, 30, 40] of
+    Right ([10, 20, 30], [40]) => True
+    _ => False
+
+short_read_failure_test : Bool
+short_read_failure_test =
+  case run_parser
+    (read_exactly_bytes 3)
+    (parser_state_with_remaining_bytes [10, 20] 0) of
+      Left (parse_error_at_byte_offset 2 "end of input") => True
+      _ => False
+
+pdf_name_test : Bool
+pdf_name_test =
+  parse_bytes parse_pdf_name (ascii_bytes "/Subtype /Image") == Right "Subtype"
+
+absolute_byte_offset_test : Bool
+absolute_byte_offset_test =
+  case parse_at_byte_offset 200 (read_exactly_bytes 2) [10] of
+    Left (parse_error_at_byte_offset 201 "end of input") => True
+    _ => False
+
+main : IO ()
+main =
+  if pdf_header_test &&
+     indirect_object_header_test &&
+     exact_byte_count_test &&
+     short_read_failure_test &&
+     pdf_name_test &&
+     absolute_byte_offset_test
+    then putStrLn "parser tests: ok"
+    else die "parser tests: failed"

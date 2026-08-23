@@ -4,12 +4,14 @@ Edriç experiments for finding and extracting embedded image streams from PDF fi
 
 The parser design borrows the small binary-parser lesson from *Real World Haskell* Chapter 10, but the implementation target is **Edriç**, not Haskell and not ordinary Idris source. See [`notes/real-world-haskell.md`](notes/real-world-haskell.md).
 
+Project-owned Edriç identifiers use descriptive lower `snake_case` wherever the current dialect permits it. The parser note records the small remaining syntax exception for the generic parameterized parser wrapper.
+
 Current code:
 
 - `src/PDF/Parser.idric` — pure byte parser core;
 - `src/PDF/Lexer.idric` — PDF whitespace/comments, names, numbers, header, and indirect-object header;
 - `src/PDF/Types.idric` — Edriç `choice` declarations for PDF type categories, with note/manual provenance in comments;
-- `tests/ParserTest.idric` — small deterministic parser tests.
+- `tests/parser_test.idric` — small deterministic parser tests.
 
 PDF type provenance and the dated manual lookup are recorded in:
 

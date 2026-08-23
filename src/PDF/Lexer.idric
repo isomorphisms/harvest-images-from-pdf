@@ -4,24 +4,24 @@ import PDF.Parser
 import Data.List
 
 public export
-asciiByte : Char -> Bits8
-asciiByte character = cast (ord character)
+ascii_byte : Char → Bits8
+ascii_byte character = cast (ord character)
 
 public export
-asciiBytes : String -> List Bits8
-asciiBytes text = map asciiByte (unpack text)
+ascii_bytes : String → List Bits8
+ascii_bytes text = map ascii_byte (unpack text)
 
 public export
-bytesToString : List Bits8 -> String
-bytesToString bytes = pack (map (chr . cast) bytes)
+bytes_to_string : List Bits8 → String
+bytes_to_string bytes = pack (map (chr . cast) bytes)
 
 public export
-matchAscii : String -> Parser ()
-matchAscii text = matchBytes (asciiBytes text)
+require_ascii_text : String → ByteParser ()
+require_ascii_text text = require_bytes (ascii_bytes text)
 
 public export
-isPdfWhitespace : Bits8 -> Bool
-isPdfWhitespace byte =
+is_pdf_whitespace : Bits8 → Bool
+is_pdf_whitespace byte =
   byte == 0 ||
   byte == 9 ||
   byte == 10 ||
@@ -30,72 +30,78 @@ isPdfWhitespace byte =
   byte == 32
 
 public export
-isPdfDelimiter : Bits8 -> Bool
-isPdfDelimiter byte =
-  byte == asciiByte '(' ||
-  byte == asciiByte ')' ||
-  byte == asciiByte '<' ||
-  byte == asciiByte '>' ||
-  byte == asciiByte '[' ||
-  byte == asciiByte ']' ||
-  byte == asciiByte '{' ||
-  byte == asciiByte '}' ||
-  byte == asciiByte '/' ||
-  byte == asciiByte '%'
+is_pdf_delimiter : Bits8 → Bool
+is_pdf_delimiter byte =
+  byte == ascii_byte '(' ||
+  byte == ascii_byte ')' ||
+  byte == ascii_byte '<' ||
+  byte == ascii_byte '>' ||
+  byte == ascii_byte '[' ||
+  byte == ascii_byte ']' ||
+  byte == ascii_byte '{' ||
+  byte == ascii_byte '}' ||
+  byte == ascii_byte '/' ||
+  byte == ascii_byte '%'
 
 public export
-isDigitByte : Bits8 -> Bool
-isDigitByte byte = byte >= asciiByte '0' && byte <= asciiByte '9'
+is_ascii_digit_byte : Bits8 → Bool
+is_ascii_digit_byte byte = byte >= ascii_byte '0' && byte <= ascii_byte '9'
 
 public export
-skipTrivia : Parser ()
-skipTrivia = do
-  skipWhileBytes isPdfWhitespace
-  next <- peekByte
-  case next of
-    Just byte =>
-      if byte == asciiByte '%'
+skip_pdf_whitespace_and_comments : ByteParser ()
+skip_pdf_whitespace_and_comments = do
+  skip_bytes_while is_pdf_whitespace
+  possible_next_byte <- peek_next_byte
+  case possible_next_byte of
+    Just next_byte =>
+      if next_byte == ascii_byte '%'
         then do
-          _ <- nextByte
-          skipWhileBytes (\b => b /= asciiByte '\n' && b /= asciiByte '\r')
-          skipTrivia
+          _ <- read_next_byte
+          skip_bytes_while (\byte => byte /= ascii_byte '\n' && byte /= ascii_byte '\r')
+          skip_pdf_whitespace_and_comments
         else pure ()
     Nothing => pure ()
 
 public export
-pdfNatural : Parser Int
-pdfNatural = do
-  digits <- takeWhileBytes isDigitByte
-  case digits of
-    [] => failParse "expected decimal integer"
-    _ => pure (foldl addDigit 0 digits)
+parse_nonnegative_decimal_integer : ByteParser Int
+parse_nonnegative_decimal_integer = do
+  digit_bytes <- read_bytes_while is_ascii_digit_byte
+  case digit_bytes of
+    [] => fail_parsing "expected decimal integer"
+    _ => pure (foldl append_decimal_digit 0 digit_bytes)
   where
-    addDigit : Int -> Bits8 -> Int
-    addDigit value byte = value * 10 + (cast byte - ord '0')
+    append_decimal_digit : Int → Bits8 → Int
+    append_decimal_digit accumulated_value digit_byte =
+      accumulated_value * 10 + (cast digit_byte - ord '0')
 
 public export
-pdfName : Parser String
-pdfName = do
-  matchByte (asciiByte '/')
-  raw <- takeWhileBytes (\byte => not (isPdfWhitespace byte) && not (isPdfDelimiter byte))
-  pure (bytesToString raw)
+parse_pdf_name : ByteParser String
+parse_pdf_name = do
+  require_byte (ascii_byte '/')
+  name_bytes <- read_bytes_while (\byte =>
+    not (is_pdf_whitespace byte) && not (is_pdf_delimiter byte))
+  pure (bytes_to_string name_bytes)
 
 public export
-pdfHeader : Parser (Int, Int)
-pdfHeader = do
-  matchAscii "%PDF-"
-  major <- satisfy "PDF major version digit" isDigitByte
-  matchByte (asciiByte '.')
-  minor <- satisfy "PDF minor version digit" isDigitByte
-  pure (cast major - ord '0', cast minor - ord '0')
+parse_pdf_header : ByteParser (Int, Int)
+parse_pdf_header = do
+  require_ascii_text "%PDF-"
+  major_version_byte <-
+    read_byte_satisfying "PDF major version digit" is_ascii_digit_byte
+  require_byte (ascii_byte '.')
+  minor_version_byte <-
+    read_byte_satisfying "PDF minor version digit" is_ascii_digit_byte
+  pure (
+    cast major_version_byte - ord '0',
+    cast minor_version_byte - ord '0')
 
 public export
-indirectObjectHeader : Parser (Int, Int)
-indirectObjectHeader = do
-  skipTrivia
-  objectNumber <- pdfNatural
-  skipTrivia
-  generationNumber <- pdfNatural
-  skipTrivia
-  matchAscii "obj"
-  pure (objectNumber, generationNumber)
+parse_indirect_object_header : ByteParser (Int, Int)
+parse_indirect_object_header = do
+  skip_pdf_whitespace_and_comments
+  object_number <- parse_nonnegative_decimal_integer
+  skip_pdf_whitespace_and_comments
+  generation_number <- parse_nonnegative_decimal_integer
+  skip_pdf_whitespace_and_comments
+  require_ascii_text "obj"
+  pure (object_number, generation_number)
