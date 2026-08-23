@@ -1,0 +1,178 @@
+module PDF.Figure
+
+import Data.List
+
+-- Figure/caption association is a page-layout concern. The raw image-stream
+-- extractor should produce image objects independently, then a page-content
+-- stage supplies placements and text fragments to this module.
+--
+-- Coordinates are integer layout units here on purpose: this association
+-- slice does not choose a floating-point runtime representation. A future
+-- page interpreter can normalize PDF user-space coordinates before calling
+-- these functions.
+
+public export
+choice page_rectangle one_of
+  -- left, bottom, right, top; y increases upward as in ordinary PDF user space.
+  page_rectangle_at Integer Integer Integer Integer
+
+public export
+rectangle_left : page_rectangle → Integer
+rectangle_left (page_rectangle_at left _ _ _) = left
+
+public export
+rectangle_bottom : page_rectangle → Integer
+rectangle_bottom (page_rectangle_at _ bottom _ _) = bottom
+
+public export
+rectangle_right : page_rectangle → Integer
+rectangle_right (page_rectangle_at _ _ right _) = right
+
+public export
+rectangle_top : page_rectangle → Integer
+rectangle_top (page_rectangle_at _ _ _ top) = top
+
+public export
+choice placed_image one_of
+  -- page number, source image-object number, page-space bounds.
+  placed_image_from_object Nat Nat page_rectangle
+
+public export
+placed_image_page_number : placed_image → Nat
+placed_image_page_number (placed_image_from_object page_number _ _) = page_number
+
+public export
+placed_image_object_number : placed_image → Nat
+placed_image_object_number (placed_image_from_object _ object_number _) = object_number
+
+public export
+placed_image_bounds : placed_image → page_rectangle
+placed_image_bounds (placed_image_from_object _ _ bounds) = bounds
+
+public export
+choice page_text_fragment one_of
+  text_fragment_on_page Nat page_rectangle String
+
+public export
+text_fragment_page_number : page_text_fragment → Nat
+text_fragment_page_number (text_fragment_on_page page_number _ _) = page_number
+
+public export
+text_fragment_bounds : page_text_fragment → page_rectangle
+text_fragment_bounds (text_fragment_on_page _ bounds _) = bounds
+
+public export
+text_fragment_text : page_text_fragment → String
+text_fragment_text (text_fragment_on_page _ _ text) = text
+
+public export
+choice caption_side one_of
+  caption_below_image
+  caption_above_image
+
+public export
+choice figure one_of
+  image_with_caption placed_image page_text_fragment
+  image_without_identified_caption placed_image
+
+rectangle_has_horizontal_overlap : page_rectangle → page_rectangle → Bool
+rectangle_has_horizontal_overlap left_rectangle right_rectangle =
+  rectangle_left left_rectangle < rectangle_right right_rectangle &&
+  rectangle_right left_rectangle > rectangle_left right_rectangle
+
+looks_like_numbered_figure_caption_characters : List Char → Bool
+looks_like_numbered_figure_caption_characters
+  ('F' :: 'i' :: 'g' :: 'u' :: 'r' :: 'e' :: ' ' :: next_character :: _) =
+    isDigit next_character
+looks_like_numbered_figure_caption_characters
+  ('F' :: 'I' :: 'G' :: 'U' :: 'R' :: 'E' :: ' ' :: next_character :: _) =
+    isDigit next_character
+looks_like_numbered_figure_caption_characters
+  ('F' :: 'i' :: 'g' :: '.' :: ' ' :: next_character :: _) =
+    isDigit next_character
+looks_like_numbered_figure_caption_characters
+  ('F' :: 'I' :: 'G' :: '.' :: ' ' :: next_character :: _) =
+    isDigit next_character
+looks_like_numbered_figure_caption_characters _ = False
+
+-- This first pass deliberately recognizes only explicit numbered labels.
+-- Broader typography/layout inference belongs in later heuristics, not in the
+-- trusted narrow rule.
+public export
+looks_like_numbered_figure_caption : String → Bool
+looks_like_numbered_figure_caption text =
+  looks_like_numbered_figure_caption_characters (unpack text)
+
+caption_gap_for_side :
+  caption_side → page_rectangle → page_rectangle → Maybe Integer
+caption_gap_for_side caption_below_image image_bounds caption_bounds =
+  if rectangle_top caption_bounds <= rectangle_bottom image_bounds
+    then Just (rectangle_bottom image_bounds - rectangle_top caption_bounds)
+    else Nothing
+caption_gap_for_side caption_above_image image_bounds caption_bounds =
+  if rectangle_bottom caption_bounds >= rectangle_top image_bounds
+    then Just (rectangle_bottom caption_bounds - rectangle_top image_bounds)
+    else Nothing
+
+caption_candidate_distance :
+  caption_side → Integer → placed_image → page_text_fragment → Maybe Integer
+caption_candidate_distance side maximum_caption_gap image text_fragment =
+  if placed_image_page_number image /= text_fragment_page_number text_fragment
+    then Nothing
+    else if not (looks_like_numbered_figure_caption (text_fragment_text text_fragment))
+      then Nothing
+      else if not (rectangle_has_horizontal_overlap
+        (placed_image_bounds image)
+        (text_fragment_bounds text_fragment))
+        then Nothing
+        else case caption_gap_for_side
+          side
+          (placed_image_bounds image)
+          (text_fragment_bounds text_fragment) of
+            Nothing => Nothing
+            Just caption_gap =>
+              if caption_gap <= maximum_caption_gap
+                then Just caption_gap
+                else Nothing
+
+nearest_caption :
+  caption_side → Integer → placed_image → List page_text_fragment →
+  Maybe page_text_fragment
+nearest_caption _ _ _ [] = Nothing
+nearest_caption side maximum_caption_gap image (candidate :: remaining_fragments) =
+  case caption_candidate_distance side maximum_caption_gap image candidate of
+    Nothing => nearest_caption side maximum_caption_gap image remaining_fragments
+    Just candidate_distance =>
+      case nearest_caption side maximum_caption_gap image remaining_fragments of
+        Nothing => Just candidate
+        Just remaining_best =>
+          case caption_candidate_distance
+            side maximum_caption_gap image remaining_best of
+              Nothing => Just candidate
+              Just remaining_distance =>
+                if candidate_distance <= remaining_distance
+                  then Just candidate
+                  else Just remaining_best
+
+-- Prefer the nearest labeled caption below an image. Only when none exists do
+-- we consider a labeled caption above it.
+public export
+associate_figure_caption :
+  Integer → placed_image → List page_text_fragment → figure
+associate_figure_caption maximum_caption_gap image text_fragments =
+  case nearest_caption
+    caption_below_image maximum_caption_gap image text_fragments of
+      Just caption => image_with_caption image caption
+      Nothing =>
+        case nearest_caption
+          caption_above_image maximum_caption_gap image text_fragments of
+            Just caption => image_with_caption image caption
+            Nothing => image_without_identified_caption image
+
+public export
+associate_figure_captions :
+  Integer → List placed_image → List page_text_fragment → List figure
+associate_figure_captions maximum_caption_gap images text_fragments =
+  map
+    (\image => associate_figure_caption maximum_caption_gap image text_fragments)
+    images

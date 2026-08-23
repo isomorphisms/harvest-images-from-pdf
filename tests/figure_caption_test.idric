@@ -1,0 +1,98 @@
+module Main
+
+import PDF.Figure
+import System
+
+sample_image : placed_image
+sample_image =
+  placed_image_from_object 3 42 (page_rectangle_at 100 300 500 600)
+
+numbered_label_test : Bool
+numbered_label_test =
+  looks_like_numbered_figure_caption "Figure 2. A useful diagram" &&
+  looks_like_numbered_figure_caption "Fig. 7: Detail" &&
+  looks_like_numbered_figure_caption "FIGURE 11 Results" &&
+  not (looks_like_numbered_figure_caption "Figure shows the result")
+
+nearest_below_caption_test : Bool
+nearest_below_caption_test =
+  let body_text =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 296 490 299)
+          "The figure shows the result."
+      farther_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 240 490 260)
+          "Figure 1. Farther away"
+      nearer_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 270 490 292)
+          "Figure 2. Nearest labeled caption"
+  in case associate_figure_caption
+       50 sample_image [body_text, farther_caption, nearer_caption] of
+       image_with_caption _ caption =>
+         text_fragment_text caption == "Figure 2. Nearest labeled caption"
+       _ => False
+
+below_preferred_over_above_test : Bool
+below_preferred_over_above_test =
+  let below_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 260 490 280)
+          "Figure 3. Below"
+      closer_above_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 602 490 620)
+          "Figure 4. Above but closer"
+  in case associate_figure_caption
+       50 sample_image [closer_above_caption, below_caption] of
+       image_with_caption _ caption =>
+         text_fragment_text caption == "Figure 3. Below"
+       _ => False
+
+above_caption_fallback_test : Bool
+above_caption_fallback_test =
+  let above_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 610 490 630)
+          "Fig. 5. Caption above the image"
+  in case associate_figure_caption 50 sample_image [above_caption] of
+       image_with_caption _ caption =>
+         text_fragment_text caption == "Fig. 5. Caption above the image"
+       _ => False
+
+wrong_page_and_no_overlap_test : Bool
+wrong_page_and_no_overlap_test =
+  let wrong_page_caption =
+        text_fragment_on_page 4
+          (page_rectangle_at 110 270 490 292)
+          "Figure 6. Wrong page"
+      no_overlap_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 510 270 700 292)
+          "Figure 7. Beside the image"
+  in case associate_figure_caption
+       50 sample_image [wrong_page_caption, no_overlap_caption] of
+       image_without_identified_caption _ => True
+       _ => False
+
+maximum_gap_test : Bool
+maximum_gap_test =
+  let distant_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 150 490 200)
+          "Figure 8. Too far away"
+  in case associate_figure_caption 50 sample_image [distant_caption] of
+       image_without_identified_caption _ => True
+       _ => False
+
+main : IO ()
+main =
+  if numbered_label_test &&
+     nearest_below_caption_test &&
+     below_preferred_over_above_test &&
+     above_caption_fallback_test &&
+     wrong_page_and_no_overlap_test &&
+     maximum_gap_test
+    then putStrLn "figure caption tests: ok"
+    else die "figure caption tests: failed"
