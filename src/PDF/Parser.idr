@@ -44,18 +44,26 @@ runParser : Parser a -> ParseState -> Either ParseError (a, ParseState)
 runParser (MkParser parser) = parser
 
 public export
-parseWithRest : Parser a -> List Bits8 -> Either ParseError (a, List Bits8)
-parseWithRest parser bytes =
-  case runParser parser (ParseState bytes 0) of
+parseWithRestAt : Nat -> Parser a -> List Bits8 -> Either ParseError (a, List Bits8)
+parseWithRestAt startOffset parser bytes =
+  case runParser parser (ParseState bytes startOffset) of
     Left error => Left error
     Right (value, state) => Right (value, remaining state)
 
 public export
-parse : Parser a -> List Bits8 -> Either ParseError a
-parse parser bytes =
-  case parseWithRest parser bytes of
+parseWithRest : Parser a -> List Bits8 -> Either ParseError (a, List Bits8)
+parseWithRest = parseWithRestAt 0
+
+public export
+parseAt : Nat -> Parser a -> List Bits8 -> Either ParseError a
+parseAt startOffset parser bytes =
+  case parseWithRestAt startOffset parser bytes of
     Left error => Left error
     Right (value, _) => Right value
+
+public export
+parse : Parser a -> List Bits8 -> Either ParseError a
+parse = parseAt 0
 
 export
 Functor Parser where

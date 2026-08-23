@@ -22,7 +22,7 @@ That is the model used in `PDF.Parser`.
 
 `takeBytes n` returns `Vect n Bits8`. A successful fixed-length read therefore has exactly the requested length in its type. A short input is a parse failure rather than a shorter successful value.
 
-The parser core is pure. Idris `Data.Buffer` byte reads live in `IO`, so the file-reading layer should feed chunks into the pure parser rather than making every parser operation an I/O action. The current `List Bits8` input is intentionally the simple first representation; it should not become the final whole-PDF storage strategy.
+The parser core is pure. Idris `Data.Buffer` byte reads live in `IO`, so the file layer should read only the slices needed at known PDF offsets and pass those slices to the pure parser. `parseAt` lets a slice keep its absolute file offset for useful errors. The current `List Bits8` input is intentionally the simple representation for such slices; it should not become the final whole-PDF storage strategy.
 
 ## PDF-specific consequence
 
@@ -31,7 +31,7 @@ Do not search blindly for strings such as `/Subtype /Image`, `stream`, or `endst
 The next useful layer is:
 
 1. parse the PDF header;
-2. locate and parse `startxref` / cross-reference information;
+2. locate `startxref` and parse either a classic cross-reference table or a cross-reference stream;
 3. seek to indirect objects by byte offset;
 4. parse dictionaries far enough to identify `/Subtype /Image` and `/Length`;
 5. consume exactly the declared stream length;

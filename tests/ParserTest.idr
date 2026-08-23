@@ -28,8 +28,14 @@ nameTest : Bool
 nameTest =
   parse pdfName (asciiBytes "/Subtype /Image") == Right "Subtype"
 
+absoluteOffsetTest : Bool
+absoluteOffsetTest =
+  case parseAt 200 (takeBytes 2) [10] of
+    Left (ParseError 201 "end of input") => True
+    _ => False
+
 main : IO ()
 main =
-  if headerTest && objectHeaderTest && fixedLengthTest && shortReadTest && nameTest
+  if headerTest && objectHeaderTest && fixedLengthTest && shortReadTest && nameTest && absoluteOffsetTest
     then putStrLn "parser tests: ok"
     else die "parser tests: failed"
