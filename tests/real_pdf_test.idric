@@ -32,14 +32,22 @@ load_binary_bytes file_path = do
       byte_count <- rawSize buffer
       read_buffer_bytes_reverse buffer 0 byte_count []
 
+-- Only try an object-header parse where the raw byte is a digit.
+-- `parse_indirect_object_header` accepts leading PDF whitespace/comments,
+-- which is useful in normal sequential parsing but would otherwise let a scan
+-- beginning at byte 0 skip `%PDF-...` as comment-like trivia and misreport the
+-- later object's location as byte 0.
 find_first_indirect_object_header :
   Nat → List Bits8 → Maybe (Nat, Int, Int)
 find_first_indirect_object_header _ [] = Nothing
-find_first_indirect_object_header byte_offset bytes@(_ :: remaining_bytes) =
-  case parse_at_byte_offset byte_offset parse_indirect_object_header bytes of
-    Right (object_number, generation_number) =>
-      Just (byte_offset, object_number, generation_number)
-    Left _ =>
+find_first_indirect_object_header byte_offset bytes@(next_byte :: remaining_bytes) =
+  if is_ascii_digit_byte next_byte
+    then case parse_at_byte_offset byte_offset parse_indirect_object_header bytes of
+      Right (object_number, generation_number) =>
+        Just (byte_offset, object_number, generation_number)
+      Left _ =>
+        find_first_indirect_object_header (S byte_offset) remaining_bytes
+    else
       find_first_indirect_object_header (S byte_offset) remaining_bytes
 
 main : IO ()
