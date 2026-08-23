@@ -32,6 +32,10 @@ jobs:
             https://proceedings.mlr.press/v97/hanin19a/hanin19a.pdf \
             --output fixtures/pdfs/complexity-of-linear-regions-in-deep-networks.pdf
 
+          curl --fail --location --retry 3 \
+            https://proceedings.mlr.press/v70/raghu17a/raghu17a.pdf \
+            --output fixtures/pdfs/on-the-expressive-power-of-deep-neural-networks.pdf
+
       - name: Verify exact fixture bytes
         shell: bash
         run: |
@@ -39,6 +43,7 @@ jobs:
           cat <<'HASHES' | sha256sum --check --strict
           5cbcfdaff46b8ce38bf54e9f70aa8e92e66edb232e0763417ac99daa0f642770  fixtures/pdfs/origami-in-n-dimensions-2203.11355.pdf
           951f8f5c92c3d6b2da046168d02bdc058c12dacffe518c023fea60ca13ec4e25  fixtures/pdfs/complexity-of-linear-regions-in-deep-networks.pdf
+          865fece7060b79b2a47db57a1a7842759337a894facd6eb932bf62241920364b  fixtures/pdfs/on-the-expressive-power-of-deep-neural-networks.pdf
           HASHES
 
       - name: Commit PDFs to this branch
