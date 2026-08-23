@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - rwh-binary-parser
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -14,6 +17,8 @@ jobs:
     steps:
       - name: Check out parser repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install build prerequisites
         run: |
