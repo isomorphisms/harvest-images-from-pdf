@@ -1,0 +1,71 @@
+name: real-pdf-edric-tests
+
+on:
+  push:
+    branches:
+      - rwh-binary-parser
+  workflow_dispatch:
+
+jobs:
+  real-pdf-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out parser repository
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgmp-dev curl
+
+      - name: Build Edric
+        run: |
+          git clone --depth 1 https://github.com/isomorphisms/Idric.git "$RUNNER_TEMP/Idric"
+          cd "$RUNNER_TEMP/Idric"
+          ./edric
+
+      - name: Configure Edric paths
+        run: |
+          cat >> "$GITHUB_ENV" <<EOF
+          IDRIC_ROOT=$RUNNER_TEMP/Idric
+          IDRIS2=$RUNNER_TEMP/Idric/build/exec/idris2
+          IDRIS2_PACKAGE_PATH=$RUNNER_TEMP/Idric/libs/prelude/build/ttc:$RUNNER_TEMP/Idric/libs/base/build/ttc
+          IDRIS2_LIBS=$RUNNER_TEMP/Idric/support/c
+          IDRIS2_DATA=$RUNNER_TEMP/Idric/support
+          SCHEME=$RUNNER_TEMP/Idric/.tools/bin/scheme
+          EOF
+
+      - name: Run deterministic parser tests
+        run: |
+          "$IDRIS2" --source-dir src --exec main tests/parser_test.idric
+
+      - name: Download real PDF samples
+        run: |
+          mkdir -p "$RUNNER_TEMP/pdf-samples"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --user-agent 'harvest-images-from-pdf/real-pdf-test' \
+            --output "$RUNNER_TEMP/pdf-samples/attention-is-all-you-need.pdf" \
+            https://arxiv.org/pdf/1706.03762.pdf
+          curl --fail --location --retry 3 --retry-all-errors \
+            --user-agent 'harvest-images-from-pdf/real-pdf-test' \
+            --output "$RUNNER_TEMP/pdf-samples/framed-instanton-homology.pdf" \
+            https://arxiv.org/pdf/2003.03329.pdf
+          curl --fail --location --retry 3 --retry-all-errors \
+            --user-agent 'harvest-images-from-pdf/real-pdf-test' \
+            --output "$RUNNER_TEMP/pdf-samples/jahnke-emde-tables.pdf" \
+            https://archive.org/download/in.ernet.dli.2015.212842/2015.212842.Tables-Of.pdf
+
+      - name: Test real PDF prefixes with Edric parser
+        run: |
+          mkdir -p test-data
+          for pdf_file in \
+            "$RUNNER_TEMP/pdf-samples/attention-is-all-you-need.pdf" \
+            "$RUNNER_TEMP/pdf-samples/framed-instanton-homology.pdf" \
+            "$RUNNER_TEMP/pdf-samples/jahnke-emde-tables.pdf"
+          do
+            echo "testing $(basename "$pdf_file")"
+            head -c 8192 "$pdf_file" > test-data/current-prefix.bin
+            "$IDRIS2" --source-dir src --exec main tests/real_pdf_test.idric
+          done

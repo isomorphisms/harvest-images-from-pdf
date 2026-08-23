@@ -1,0 +1,67 @@
+module Main
+
+import PDF.Parser
+import PDF.Lexer
+import Data.Buffer
+import System
+import System.File.Buffer
+
+pdf_prefix_path : String
+pdf_prefix_path = "test-data/current-prefix.bin"
+
+read_buffer_bytes_reverse :
+  Buffer → Int → Int → List Bits8 → IO (List Bits8)
+read_buffer_bytes_reverse buffer current_byte_offset byte_count reversed_bytes =
+  if current_byte_offset >= byte_count
+    then pure (reverse reversed_bytes)
+    else do
+      next_byte <- getBits8 buffer current_byte_offset
+      read_buffer_bytes_reverse
+        buffer
+        (current_byte_offset + 1)
+        byte_count
+        (next_byte :: reversed_bytes)
+
+load_binary_bytes : String → IO (List Bits8)
+load_binary_bytes file_path = do
+  buffer_result <- createBufferFromFile file_path
+  case buffer_result of
+    Left file_error =>
+      die ("could not read PDF prefix: " ++ show file_error)
+    Right buffer => do
+      byte_count <- rawSize buffer
+      read_buffer_bytes_reverse buffer 0 byte_count []
+
+find_first_indirect_object_header :
+  Nat → List Bits8 → Maybe (Nat, Int, Int)
+find_first_indirect_object_header _ [] = Nothing
+find_first_indirect_object_header byte_offset bytes@(_ :: remaining_bytes) =
+  case parse_at_byte_offset byte_offset parse_indirect_object_header bytes of
+    Right (object_number, generation_number) =>
+      Just (byte_offset, object_number, generation_number)
+    Left _ =>
+      find_first_indirect_object_header (S byte_offset) remaining_bytes
+
+main : IO ()
+main = do
+  pdf_prefix_bytes <- load_binary_bytes pdf_prefix_path
+
+  case parse_bytes parse_pdf_header pdf_prefix_bytes of
+    Left parse_failure =>
+      die ("real PDF header parse failed: " ++ show parse_failure)
+    Right (major_version, minor_version) =>
+      putStrLn (
+        "PDF header: " ++
+        show major_version ++ "." ++ show minor_version)
+
+  case find_first_indirect_object_header 0 pdf_prefix_bytes of
+    Nothing =>
+      die "no indirect-object header found in first 8192 PDF bytes"
+    Just (byte_offset, object_number, generation_number) =>
+      putStrLn (
+        "first indirect object candidate: object " ++
+        show object_number ++
+        " generation " ++ show generation_number ++
+        " at byte offset " ++ show byte_offset)
+
+  putStrLn "real PDF prefix test: ok"
