@@ -14,7 +14,7 @@ Current code:
 - `tests/parser_test.idric` — small deterministic parser tests;
 - `tests/real_pdf_test.idric` — reads a real PDF byte prefix and requires both a valid PDF header and an indirect-object header candidate.
 
-The real-PDF test corpus currently covers two arXiv papers and the scanned Jahnke–Emde *Tables of Functions with Formulae and Curves* PDF from Internet Archive. The PDFs are downloaded during testing rather than stored in this repository.
+The real-PDF test corpus currently covers two arXiv papers and the scanned Jahnke–Emde *Tables of Functions with Formulae and Curves* PDF from Internet Archive. The PDFs are downloaded during testing rather than stored in this repository. The integration run builds the current Edriç compiler before executing these `.idric` tests.
 
 PDF type provenance and the dated manual lookup are recorded in:
 
