@@ -1,14 +1,16 @@
-# Real World Haskell parser lessons for this project
+# Real World Haskell parser lessons for this Edriç project
 
-The useful reference is **Real World Haskell, Chapter 10: “Code case study: parsing a binary data format.”** Chapter 16 introduces Parsec, but the smaller Chapter 10 parser is a better starting point for PDF work.
+The useful reference is **Real World Haskell, Chapter 10: “Code case study: parsing a binary data format.”** Chapter 16 introduces Parsec, but the smaller Chapter 10 parser is the better design reference for this PDF work.
+
+This project is **not a Haskell implementation**. The Haskell chapter supplies a parser-design lesson that we are translating into Edriç source under `src/PDF/*.idric`.
 
 The chapter starts with nested case expressions over a binary format, then factors the repeated plumbing into a parser whose shape is essentially:
 
 ```text
-state -> Either error (value, state)
+state → Either error (value, state)
 ```
 
-That is the model used in `PDF.Parser`.
+That state/error shape is the model used in `PDF.Parser`; the source language here is Edriç.
 
 ## What carries over directly
 
@@ -16,13 +18,15 @@ That is the model used in `PDF.Parser`.
 - Failure is a value, not an exception.
 - Tiny parsers (`nextByte`, `satisfy`, `matchBytes`) are composed into larger parsers.
 - The caller does not manually thread the remaining input or offset through every function.
-- Errors report the byte offset. This matters even more in PDF than in the book's PGM example because PDF cross-reference data is explicitly offset-based.
+- Errors report the byte offset. This matters especially in PDF because cross-reference data is explicitly offset-based.
 
-## What Idris can improve
+## What Edriç can improve
 
 `takeBytes n` returns `Vect n Bits8`. A successful fixed-length read therefore has exactly the requested length in its type. A short input is a parse failure rather than a shorter successful value.
 
-The parser core is pure. Idris `Data.Buffer` byte reads live in `IO`, so the file layer should read only the slices needed at known PDF offsets and pass those slices to the pure parser. `parseAt` lets a slice keep its absolute file offset for useful errors. The current `List Bits8` input is intentionally the simple representation for such slices; it should not become the final whole-PDF storage strategy.
+The parser core stays pure. File I/O should read only the slices needed at known PDF offsets and pass those slices to the pure parser. `parseAt` lets a slice keep its absolute file offset for useful errors. The current `List Bits8` input is intentionally a simple representation for such slices; it should not become the final whole-PDF storage strategy.
+
+Edriç's storage-neutral `choice ... one_of` syntax is also a natural fit for closed PDF classifications. `src/PDF/Types.idric` uses it for the PDF type inventory rather than translating Haskell algebraic-data-type syntax mechanically.
 
 ## PDF-specific consequence
 
@@ -37,4 +41,4 @@ The next useful layer is:
 5. consume exactly the declared stream length;
 6. hand the extracted stream plus `/Filter`, `/Width`, `/Height`, `/ColorSpace`, and `/BitsPerComponent` metadata to the image-decoding/output layer.
 
-That keeps the RWH lesson intact: make state, failure, and byte consumption explicit once, then describe the file format by composing small parsers.
+That preserves the useful RWH lesson without preserving Haskell as the implementation language: make state, failure, and byte consumption explicit once, then describe the PDF format by composing small Edriç parsers.
