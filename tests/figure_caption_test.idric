@@ -12,7 +12,10 @@ numbered_label_test =
   looks_like_numbered_figure_caption "Figure 2. A useful diagram" &&
   looks_like_numbered_figure_caption "Fig. 7: Detail" &&
   looks_like_numbered_figure_caption "FIGURE 11 Results" &&
-  not (looks_like_numbered_figure_caption "Figure shows the result")
+  looks_like_numbered_figure_caption "FIG. 4 Detail" &&
+  not (looks_like_numbered_figure_caption "Figure shows the result") &&
+  not (looks_like_numbered_figure_caption "Fig 7. Missing period") &&
+  not (looks_like_numbered_figure_caption "figure 7. Lowercase label")
 
 nearest_below_caption_test : Bool
 nearest_below_caption_test =
@@ -32,6 +35,29 @@ nearest_below_caption_test =
        50 sample_image [body_text, farther_caption, nearer_caption] of
        image_with_caption _ caption =>
          text_fragment_text caption == "Figure 2. Nearest labeled caption"
+       _ => False
+
+input_order_does_not_change_nearest_caption_test : Bool
+input_order_does_not_change_nearest_caption_test =
+  let farther_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 240 490 260)
+          "Figure 1. Farther away"
+      nearer_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 270 490 292)
+          "Figure 2. Nearest labeled caption"
+  in case associate_figure_caption
+       50 sample_image [nearer_caption, farther_caption] of
+       image_with_caption _ first_caption =>
+         case associate_figure_caption
+           50 sample_image [farther_caption, nearer_caption] of
+             image_with_caption _ second_caption =>
+               text_fragment_text first_caption ==
+                 "Figure 2. Nearest labeled caption" &&
+               text_fragment_text second_caption ==
+                 "Figure 2. Nearest labeled caption"
+             _ => False
        _ => False
 
 below_preferred_over_above_test : Bool
@@ -86,13 +112,110 @@ maximum_gap_test =
        image_without_identified_caption _ => True
        _ => False
 
+maximum_gap_boundary_test : Bool
+maximum_gap_boundary_test =
+  let exactly_at_limit =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 230 490 250)
+          "Figure 9. Exactly fifty units away"
+      just_over_limit =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 229 490 249)
+          "Figure 10. Fifty-one units away"
+  in case associate_figure_caption 50 sample_image [exactly_at_limit] of
+       image_with_caption _ caption =>
+         text_fragment_text caption == "Figure 9. Exactly fifty units away" &&
+         case associate_figure_caption 50 sample_image [just_over_limit] of
+           image_without_identified_caption _ => True
+           _ => False
+       _ => False
+
+zero_gap_caption_test : Bool
+zero_gap_caption_test =
+  let touching_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 280 490 300)
+          "Figure 11. Touches the image boundary"
+  in case associate_figure_caption 50 sample_image [touching_caption] of
+       image_with_caption _ caption =>
+         text_fragment_text caption == "Figure 11. Touches the image boundary"
+       _ => False
+
+vertically_overlapping_text_is_not_caption_test : Bool
+vertically_overlapping_text_is_not_caption_test =
+  let overlapping_text =
+        text_fragment_on_page 3
+          (page_rectangle_at 110 290 490 320)
+          "Figure 12. This rectangle overlaps the image"
+  in case associate_figure_caption 50 sample_image [overlapping_text] of
+       image_without_identified_caption _ => True
+       _ => False
+
+edge_only_horizontal_contact_is_not_overlap_test : Bool
+edge_only_horizontal_contact_is_not_overlap_test =
+  let touching_left_edge =
+        text_fragment_on_page 3
+          (page_rectangle_at 20 270 100 292)
+          "Figure 13. Only touches the left edge"
+  in case associate_figure_caption 50 sample_image [touching_left_edge] of
+       image_without_identified_caption _ => True
+       _ => False
+
+multiple_images_get_their_own_captions_test : Bool
+multiple_images_get_their_own_captions_test =
+  let left_image =
+        placed_image_from_object 3 101 (page_rectangle_at 100 300 280 500)
+      right_image =
+        placed_image_from_object 3 102 (page_rectangle_at 320 300 500 500)
+      left_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 100 270 280 292)
+          "Figure 14. Left image"
+      right_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 320 270 500 292)
+          "Figure 15. Right image"
+  in case associate_figure_captions
+       50 [left_image, right_image] [right_caption, left_caption] of
+       [image_with_caption found_left left_text,
+        image_with_caption found_right right_text] =>
+          placed_image_object_number found_left == 101 &&
+          text_fragment_text left_text == "Figure 14. Left image" &&
+          placed_image_object_number found_right == 102 &&
+          text_fragment_text right_text == "Figure 15. Right image"
+       _ => False
+
+unmatched_image_is_preserved_test : Bool
+unmatched_image_is_preserved_test =
+  let left_image =
+        placed_image_from_object 3 101 (page_rectangle_at 100 300 280 500)
+      right_image =
+        placed_image_from_object 3 102 (page_rectangle_at 320 300 500 500)
+      left_caption =
+        text_fragment_on_page 3
+          (page_rectangle_at 100 270 280 292)
+          "Figure 16. Only the left image has a caption"
+  in case associate_figure_captions 50 [left_image, right_image] [left_caption] of
+       [image_with_caption found_left _,
+        image_without_identified_caption found_right] =>
+          placed_image_object_number found_left == 101 &&
+          placed_image_object_number found_right == 102
+       _ => False
+
 main : IO ()
 main =
   if numbered_label_test &&
      nearest_below_caption_test &&
+     input_order_does_not_change_nearest_caption_test &&
      below_preferred_over_above_test &&
      above_caption_fallback_test &&
      wrong_page_and_no_overlap_test &&
-     maximum_gap_test
+     maximum_gap_test &&
+     maximum_gap_boundary_test &&
+     zero_gap_caption_test &&
+     vertically_overlapping_text_is_not_caption_test &&
+     edge_only_horizontal_contact_is_not_overlap_test &&
+     multiple_images_get_their_own_captions_test &&
+     unmatched_image_is_preserved_test
     then putStrLn "figure caption tests: ok"
     else die "figure caption tests: failed"
